@@ -568,6 +568,141 @@ double PottsModel::HeatBathLookupZeroTemp(double gamma, double prob, unsigned in
     acceptance = double(changes) / double(num_of_nodes) / double(sweep);
     return acceptance;
 }
+
+double PottsModel::HeatBathLookupZeroTempSym(double gamma, double prob, unsigned int max_sweeps, const igraph_vector_int_t *sym_nodes) {
+    DLList_Iter<NNode*> iter;
+    DLList_Iter<NLink*> l_iter;
+    DLList_Iter<unsigned int*> i_iter, i_iter2;
+    NNode *node, *n_cur;
+    NLink *l_cur;
+    unsigned long new_spin, spin_opt, old_spin, spin;
+    unsigned int sweep;
+    long r;// degree;
+    unsigned long changes;
+    double delta = 0, h, deltaE, deltaEmin, w, degree;
+    //HugeArray<int> neighbours;
+
+    sweep = 0;
+    changes = 0;
+    while (sweep < max_sweeps) {
+        sweep++;
+        //ueber alle Knoten im Netz
+        for (unsigned long n = 0; n < num_of_nodes; n++) {
+            r = -1;
+            while ((r < 0) || (r > (long)num_of_nodes - 1)) {
+                r = RNG_INTEGER(0, num_of_nodes - 1);
+            }
+            /* r=long(double(num_of_nodes*double(rand())/double(RAND_MAX+1.0)));*/
+            node = net->node_list->Get(r);
+            // Wir zaehlen, wieviele Nachbarn von jedem spin vorhanden sind
+            // erst mal alles Null setzen
+            for (unsigned long i = 0; i <= q; i++) {
+                neighbours[i] = 0;
+            }
+            degree = node->Get_Weight();
+            //Loop over all links (=neighbours)
+            l_cur = l_iter.First(node->Get_Links());
+            while (!l_iter.End()) {
+                //printf("%s %s\n",node->Get_Name(),n_cur->Get_Name());
+                w = l_cur->Get_Weight();
+                if (node == l_cur->Get_Start()) {
+                    n_cur = l_cur->Get_End();
+                } else {
+                    n_cur = l_cur->Get_Start();
+                }
+                neighbours[n_cur->Get_ClusterIndex()] += w;
+                l_cur = l_iter.Next();
+            }
+            //Search optimal Spin
+            old_spin = node->Get_ClusterIndex();
+            //degree=node->Get_Degree();
+            switch (operation_mode) {
+                case 0: {
+                    delta = 1.0;
+                    break;
+                }
+                case 1: { //newman modularity
+                    prob = degree / total_degree_sum;
+                    delta = degree;
+                    break;
+                }
+            }
+
+
+            spin_opt = old_spin;
+            deltaEmin = 0.0;
+            for (spin = 1; spin <= q; spin++) { // alle moeglichen Spins
+                if (spin != old_spin) {
+                    h = color_field[spin] + delta - color_field[old_spin];
+                    deltaE = double(neighbours[old_spin] - neighbours[spin]) + gamma * prob * double(h);
+                    if (deltaE < deltaEmin) {
+                        spin_opt = spin;
+                        deltaEmin = deltaE;
+                    }
+                }
+            } // for spin
+
+            //-------------------------------
+            //Now update the spins
+            new_spin = spin_opt;
+            long sym_r = VECTOR(*sym_nodes)[r];
+            NNode* sym_node = net->node_list->Get(sym_r);
+            if (new_spin != old_spin) { // Did we really change something??
+                changes++;
+                node->Set_ClusterIndex(new_spin);
+                color_field[old_spin] -= delta;
+                color_field[new_spin] += delta;
+
+                if (sym_node != node) {
+                    sym_node->Set_ClusterIndex(new_spin);
+                    color_field[old_spin] -= delta;
+                    color_field[new_spin] += delta;
+                }
+
+                //Qmatrix update
+                //iteration over all neighbours
+                l_cur = l_iter.First(node->Get_Links());
+                while (!l_iter.End()) {
+                    w = l_cur->Get_Weight();
+                    if (node == l_cur->Get_Start()) {
+                        n_cur = l_cur->Get_End();
+                    } else {
+                        n_cur = l_cur->Get_Start();
+                    }
+                    Qmatrix[old_spin][n_cur->Get_ClusterIndex()] -= w;
+                    Qmatrix[new_spin][n_cur->Get_ClusterIndex()] += w;
+                    Qmatrix[n_cur->Get_ClusterIndex()][old_spin] -= w;
+                    Qmatrix[n_cur->Get_ClusterIndex()][new_spin] += w;
+                    Qa[old_spin] -= w;
+                    Qa[new_spin] += w;
+                    l_cur = l_iter.Next();
+                }  // while l_iter
+
+                if (sym_node != node) {
+                    l_cur = l_iter.First(sym_node->Get_Links());
+                    while (!l_iter.End()) {
+                        w = l_cur->Get_Weight();
+                        if (sym_node == l_cur->Get_Start()) {
+                            n_cur = l_cur->Get_End();
+                        } else {
+                            n_cur = l_cur->Get_Start();
+                        }
+                        Qmatrix[old_spin][n_cur->Get_ClusterIndex()] -= w;
+                        Qmatrix[new_spin][n_cur->Get_ClusterIndex()] += w;
+                        Qmatrix[n_cur->Get_ClusterIndex()][old_spin] -= w;
+                        Qmatrix[n_cur->Get_ClusterIndex()][new_spin] += w;
+                        Qa[old_spin] -= w;
+                        Qa[new_spin] += w;
+                        l_cur = l_iter.Next();
+                    }  // while l_iter
+                }
+            }
+        } // for n
+    }  // while markov
+
+    acceptance = double(changes) / double(num_of_nodes) / double(sweep);
+    return acceptance;
+}
 //#####################################################################################
 //This function performs a parallel update at Terperature T
 //#####################################################################################
@@ -894,6 +1029,187 @@ double PottsModel::HeatBathLookup(double gamma, double prob, double kT, unsigned
     acceptance = double(changes) / double(number_of_nodes) / double(sweep);
     return acceptance;
 }
+
+double PottsModel::HeatBathLookupSym(double gamma, double prob, double kT, unsigned int max_sweeps, const igraph_vector_int_t *sym_nodes){
+    DLList_Iter<NNode*> iter;
+    DLList_Iter<NLink*> l_iter;
+    DLList_Iter<unsigned long*> i_iter, i_iter2;
+    NNode *node, *n_cur;
+    NLink *l_cur;
+    unsigned long new_spin, spin_opt, old_spin;
+    unsigned int sweep;
+    long max_q, rn;
+    unsigned long changes/*, degree, problemcount*/;
+    double degree, w, delta = 0, h;
+    //HugeArray<int> neighbours;
+    double norm, r, beta, minweight, prefac = 0;
+    //bool found;
+    igraph_integer_t number_of_nodes;
+    sweep = 0;
+    changes = 0;
+    number_of_nodes = net->node_list->Size();
+    while (sweep < max_sweeps) {
+        sweep++;
+        //loop over all nodes in network
+        for (long n = 0; n < number_of_nodes; n++) {
+            rn = -1;
+            while ((rn < 0) || (rn > number_of_nodes - 1)) {
+                rn = RNG_INTEGER(0, number_of_nodes - 1);
+            }
+            /* rn=long(double(number_of_nodes*double(rand())/double(RAND_MAX+1.0))); */
+
+            node = net->node_list->Get(rn);
+            // initialize the neighbours and the weights
+            // problemcount = 0;
+            for (unsigned long i = 0; i <= q; i++) {
+                neighbours[i] = 0.0;
+                weights[i] = 0.0;
+            }
+            norm = 0.0;
+            degree = node->Get_Weight();
+            //Loop over all links (=neighbours)
+            l_cur = l_iter.First(node->Get_Links());
+            while (!l_iter.End()) {
+                //printf("%s %s\n",node->Get_Name(),n_cur->Get_Name());
+                w = l_cur->Get_Weight();
+                if (node == l_cur->Get_Start()) {
+                    n_cur = l_cur->Get_End();
+                } else {
+                    n_cur = l_cur->Get_Start();
+                }
+                neighbours[n_cur->Get_ClusterIndex()] += w;
+                l_cur = l_iter.Next();
+            }
+
+            //Look for optimal spin
+
+            old_spin = node->Get_ClusterIndex();
+            //degree=node->Get_Degree();
+            switch (operation_mode) {
+                case 0: {
+                    prefac = 1.0;
+                    delta = 1.0;
+                    break;
+                }
+                case 1:  {//newman modularity
+                    prefac = 1.0;
+                    prob = degree / total_degree_sum;
+                    delta = degree;
+                    break;
+                }
+            }
+            spin_opt = old_spin;
+            beta = 1.0 / kT * prefac;
+            minweight = 0.0;
+            weights[old_spin] = 0.0;
+            for (unsigned spin = 1; spin <= q; spin++) { // all possible new spins
+                if (spin != old_spin) { // except the old one!
+                    h = color_field[spin] - (color_field[old_spin] - delta);
+                    weights[spin] = neighbours[old_spin] - neighbours[spin] + gamma * prob * h;
+                    if (weights[spin] < minweight) {
+                        minweight = weights[spin];
+                    }
+                }
+            }   // for spin
+            for (unsigned spin = 1; spin <= q; spin++) { // all possible new spins
+                weights[spin] -= minweight;       // subtract minweigt
+                // for numerical stability
+                weights[spin] = exp(-beta * weights[spin]);
+                norm += weights[spin];
+            }   // for spin
+
+
+            //choose a new spin
+            /*      r = norm*double(rand())/double(RAND_MAX + 1.0); */
+            r = RNG_UNIF(0, norm);
+            new_spin = 1;
+            //found = false;
+            while (/*!found &&*/ new_spin <= q) {
+                if (r <= weights[new_spin]) {
+                    spin_opt = new_spin;
+                    //found = true;
+                    break;
+                } else {
+                    r -= weights[new_spin];
+                }
+                new_spin++;
+            }
+            /*
+            if (!found) {
+                printf(".");
+                problemcount++;
+            }
+            */
+            //-------------------------------
+            //now set the new spin
+            new_spin = spin_opt;
+            long sym_rn = VECTOR(*sym_nodes)[rn];
+            NNode* sym_node = net->node_list->Get(sym_rn);
+            if (new_spin != old_spin) { // Did we really change something??
+                changes++;
+                node->Set_ClusterIndex(new_spin);
+                net->node_list->Get(rn)->Set_ClusterIndex(new_spin);
+                color_field[old_spin] -= delta;
+                color_field[new_spin] += delta;
+
+                if (sym_node != node) {
+                    sym_node->Set_ClusterIndex(new_spin);
+                    net->node_list->Get(sym_rn)->Set_ClusterIndex(new_spin);
+                    color_field[old_spin] -= delta;
+                    color_field[new_spin] += delta;
+                }
+
+                //Qmatrix update
+                //iteration over all neighbours
+                l_cur = l_iter.First(node->Get_Links());
+                while (!l_iter.End()) {
+                    w = l_cur->Get_Weight();
+                    if (node == l_cur->Get_Start()) {
+                        n_cur = l_cur->Get_End();
+                    } else {
+                        n_cur = l_cur->Get_Start();
+                    }
+                    Qmatrix[old_spin][n_cur->Get_ClusterIndex()] -= w;
+                    Qmatrix[new_spin][n_cur->Get_ClusterIndex()] += w;
+                    Qmatrix[n_cur->Get_ClusterIndex()][old_spin] -= w;
+                    Qmatrix[n_cur->Get_ClusterIndex()][new_spin] += w;
+                    Qa[old_spin] -= w;
+                    Qa[new_spin] += w;
+                    l_cur = l_iter.Next();
+                }  // while l_iter
+
+                //symmetric node
+                if (sym_node != node) {
+                    l_cur = l_iter.First(sym_node->Get_Links());
+                    while (!l_iter.End()) {
+                        w = l_cur->Get_Weight();
+                        if (sym_node == l_cur->Get_Start()) {
+                            n_cur = l_cur->Get_End();
+                        } else {
+                            n_cur = l_cur->Get_Start();
+                        }
+                        Qmatrix[old_spin][n_cur->Get_ClusterIndex()] -= w;
+                        Qmatrix[new_spin][n_cur->Get_ClusterIndex()] += w;
+                        Qmatrix[n_cur->Get_ClusterIndex()][old_spin] -= w;
+                        Qmatrix[n_cur->Get_ClusterIndex()][new_spin] += w;
+                        Qa[old_spin] -= w;
+                        Qa[new_spin] += w;
+                        l_cur = l_iter.Next();
+                    }  // while l_iter
+                }
+            }
+        } // for n
+    }  // while markov
+    max_q = 0;
+
+    for (unsigned long i = 1; i <= q; i++) if (color_field[i] > max_q) {
+            max_q = long(color_field[i] + 0.5);
+        }
+
+    acceptance = double(changes) / double(number_of_nodes) / double(sweep);
+    return acceptance;
+}
+
 
 //###############################################################################################
 //# Here we try to minimize the affinity to the rest of the network

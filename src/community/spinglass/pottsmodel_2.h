@@ -98,8 +98,10 @@ public:
     double FindStartTemp(double gamma, double prob,  double ts);
     long   HeatBathParallelLookupZeroTemp(double gamma, double prob, unsigned int max_sweeps);
     double HeatBathLookupZeroTemp(double gamma, double prob, unsigned int max_sweeps);
+    double HeatBathLookupZeroTempSym(double gamma, double prob, unsigned int max_sweeps, const igraph_vector_int_t *sym_nodes);
     long   HeatBathParallelLookup(double gamma, double prob, double kT, unsigned int max_sweeps);
     double HeatBathLookup(double gamma, double prob, double kT, unsigned int max_sweeps);
+    double HeatBathLookupSym(double gamma, double prob, double kT, unsigned int max_sweeps, const igraph_vector_int_t *sym_nodes);
     double GammaSweep(double gamma_start, double gamma_stop, double prob, unsigned int steps, bool non_parallel = true, int repetitions = 1);
     double GammaSweepZeroTemp(double gamma_start, double gamma_stop, double prob, unsigned int steps, bool non_parallel = true, int repetitions = 1);
     // long   WriteCorrelationMatrix(char *filename);

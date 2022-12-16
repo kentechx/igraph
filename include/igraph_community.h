@@ -73,6 +73,21 @@ IGRAPH_EXPORT igraph_error_t igraph_community_spinglass(const igraph_t *graph,
                                              igraph_spinglass_implementation_t implementation,
                                              igraph_real_t gamma_minus);
 
+IGRAPH_EXPORT igraph_error_t igraph_community_spinglass_sym(const igraph_t *graph,
+                                                            const igraph_vector_t *weights,
+                                                            igraph_real_t *modularity,
+                                                            igraph_real_t *temperature,
+                                                            igraph_vector_int_t *membership,
+                                                            igraph_vector_int_t *csize,
+                                                            igraph_integer_t spins,
+                                                            igraph_bool_t parupdate,
+                                                            igraph_real_t starttemp,
+                                                            igraph_real_t stoptemp,
+                                                            igraph_real_t coolfact,
+                                                            igraph_spincomm_update_t update_rule,
+                                                            igraph_real_t gamma,
+                                                            const igraph_vector_int_t *sym_nodes);
+
 IGRAPH_EXPORT igraph_error_t igraph_community_spinglass_single(const igraph_t *graph,
                                                     const igraph_vector_t *weights,
                                                     igraph_integer_t vertex,
