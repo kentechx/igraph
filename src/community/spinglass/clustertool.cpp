@@ -497,6 +497,149 @@ igraph_error_t igraph_community_spinglass_single(const igraph_t *graph,
     return IGRAPH_SUCCESS;
 }
 
+igraph_error_t igraph_community_spinglass_sym(
+        const igraph_t *graph,
+        const igraph_vector_t *weights,
+        igraph_real_t *modularity,
+        igraph_real_t *temperature,
+        igraph_vector_int_t *membership,
+        igraph_vector_int_t *csize,
+        igraph_integer_t spins,
+        igraph_bool_t parupdate,
+        igraph_real_t starttemp,
+        igraph_real_t stoptemp,
+        igraph_real_t coolfact,
+        igraph_spincomm_update_t update_rule,
+        igraph_real_t gamma,
+        const igraph_vector_int_t *sym_nodes) {
+
+    igraph_integer_t no_of_nodes = igraph_vcount(graph);
+    unsigned long changes, runs;
+    igraph_bool_t use_weights = false;
+    bool zeroT;
+    double kT, acc, prob;
+
+    /* Check arguments */
+
+    if (spins < 2) {
+        IGRAPH_ERROR("Number of spins must be at least 2", IGRAPH_EINVAL);
+    }
+    if (update_rule != IGRAPH_SPINCOMM_UPDATE_SIMPLE &&
+        update_rule != IGRAPH_SPINCOMM_UPDATE_CONFIG) {
+        IGRAPH_ERROR("Invalid update rule", IGRAPH_EINVAL);
+    }
+    if (weights) {
+        if (igraph_vector_size(weights) != igraph_ecount(graph)) {
+            IGRAPH_ERROR("Invalid weight vector length", IGRAPH_EINVAL);
+        }
+        use_weights = 1;
+    }
+    if (coolfact < 0 || coolfact >= 1.0) {
+        IGRAPH_ERROR("Invalid cooling factor", IGRAPH_EINVAL);
+    }
+    if (gamma < 0.0) {
+        IGRAPH_ERROR("Invalid gamma value", IGRAPH_EINVAL);
+    }
+    if (starttemp / stoptemp < 1.0) {
+        IGRAPH_ERROR("starttemp should be larger in absolute value than stoptemp",
+                     IGRAPH_EINVAL);
+    }
+
+    /* The spinglass algorithm does not handle the trivial cases of the
+       null and singleton graphs, so we catch them here. */
+    if (no_of_nodes < 2) {
+        if (membership) {
+            IGRAPH_CHECK(igraph_vector_int_resize(membership, no_of_nodes));
+            igraph_vector_int_fill(membership, 0);
+        }
+        if (modularity) {
+            IGRAPH_CHECK(igraph_modularity(graph, membership, 0, 1, igraph_is_directed(graph), modularity));
+        }
+        if (temperature) {
+            *temperature = stoptemp;
+        }
+        if (csize) {
+            /* 0 clusters for 0 nodes, 1 cluster for 1 node */
+            IGRAPH_CHECK(igraph_vector_int_resize(csize, no_of_nodes));
+            igraph_vector_int_fill(csize, 1);
+        }
+        return IGRAPH_SUCCESS;
+    }
+
+    /* Check whether we have a single component */
+    igraph_bool_t conn;
+    IGRAPH_CHECK(igraph_is_connected(graph, &conn, IGRAPH_WEAK));
+    if (!conn) {
+        IGRAPH_ERROR("Cannot work with unconnected graph", IGRAPH_EINVAL);
+    }
+
+    network net;
+
+    /* Transform the igraph_t */
+    IGRAPH_CHECK(igraph_i_read_network(graph, weights,
+                                       &net, use_weights, 0));
+
+    prob = 2.0 * net.sum_weights / double(net.node_list->Size())
+           / double(net.node_list->Size() - 1);
+
+    PottsModel pm(&net, (unsigned int)spins, update_rule);
+
+    /* initialize the random number generator */
+    RNG_BEGIN();
+
+    if ((stoptemp == 0.0) && (starttemp == 0.0)) {
+        zeroT = true;
+    } else {
+        zeroT = false;
+    }
+    if (!zeroT) {
+        kT = pm.FindStartTemp(gamma, prob, starttemp);
+    } else {
+        kT = stoptemp;
+    }
+    /* assign random initial configuration */
+    pm.assign_initial_conf(-1);
+    runs = 0;
+    changes = 1;
+
+    while (changes > 0 && (kT / stoptemp > 1.0 || (zeroT && runs < 150))) {
+
+        IGRAPH_ALLOW_INTERRUPTION();
+
+        runs++;
+        if (!zeroT) {
+            kT *= coolfact;
+            if (parupdate) {
+                changes = pm.HeatBathParallelLookup(gamma, prob, kT, 50);
+            } else {
+                acc = pm.HeatBathLookupSym(gamma, prob, kT, 50, sym_nodes);
+                if (acc < (1.0 - 1.0 / double(spins)) * 0.01) {
+                    changes = 0;
+                } else {
+                    changes = 1;
+                }
+            }
+        } else {
+            if (parupdate) {
+                changes = pm.HeatBathParallelLookupZeroTemp(gamma, prob, 50);
+            } else {
+                acc = pm.HeatBathLookupZeroTemp(gamma, prob, 50);
+                /* less than 1 percent acceptance ratio */
+                if (acc < (1.0 - 1.0 / double(spins)) * 0.01) {
+                    changes = 0;
+                } else {
+                    changes = 1;
+                }
+            }
+        }
+    } /* while loop */
+
+    pm.WriteClusters(modularity, temperature, csize, membership, kT, gamma);
+
+    RNG_END();
+
+    return IGRAPH_SUCCESS;
+}
 static igraph_error_t igraph_i_community_spinglass_negative(
         const igraph_t *graph,
         const igraph_vector_t *weights,
