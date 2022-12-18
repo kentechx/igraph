@@ -623,7 +623,7 @@ igraph_error_t igraph_community_spinglass_sym(
             if (parupdate) {
                 changes = pm.HeatBathParallelLookupZeroTemp(gamma, prob, 50);
             } else {
-                acc = pm.HeatBathLookupZeroTemp(gamma, prob, 50);
+                acc = pm.HeatBathLookupZeroTempSym(gamma, prob, 50, sym_nodes);
                 /* less than 1 percent acceptance ratio */
                 if (acc < (1.0 - 1.0 / double(spins)) * 0.01) {
                     changes = 0;
